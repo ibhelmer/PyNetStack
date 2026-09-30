@@ -1,52 +1,14 @@
 # Copyright 2026 Ib Helmer Nielsen
 # SPDX-License-Identifier: Apache-2.0
 """A byte-bus simulator and an optional pySerial RS-485 backend."""
-from collections.abc import Callable
 from typing import Protocol
+from .simulation import MemoryBus, MemoryPort
 
 
 class BytePort(Protocol):
     def read(self, size: int = 4096) -> bytes: ...
     def write(self, data: bytes) -> None: ...
     def close(self) -> None: ...
-
-
-class MemoryBus:
-    """Broadcast bytes, not Python packet objects. No electrical timing model."""
-
-    def __init__(self):
-        self.ports: dict[int, MemoryPort] = {}
-        self.filter: Callable[[int, bytes], bytes | None] = lambda source, data: data
-
-    def connect(self, node: int) -> "MemoryPort":
-        if node in self.ports:
-            raise ValueError("Duplicate bus node")
-        port = MemoryPort(self, node)
-        self.ports[node] = port
-        return port
-
-
-class MemoryPort:
-    def __init__(self, bus: MemoryBus, node: int):
-        self.bus, self.node = bus, node
-        self.buffer = bytearray()
-
-    def read(self, size: int = 4096) -> bytes:
-        result = bytes(self.buffer[:size])
-        del self.buffer[:size]
-        return result
-
-    def write(self, data: bytes) -> None:
-        filtered = self.bus.filter(self.node, data)
-        if filtered is not None:
-            for node, port in self.bus.ports.items():
-                if node != self.node:
-                    if len(port.buffer) + len(filtered) > 1024 * 1024:
-                        raise BufferError("Simulated receiver is not being serviced")
-                    port.buffer.extend(filtered)
-
-    def close(self) -> None:
-        self.bus.ports.pop(self.node, None)
 
 
 class SerialPort:
