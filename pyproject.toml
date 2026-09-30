@@ -1,0 +1,28 @@
+# Copyright 2026 Ib Helmer Nielsen
+# SPDX-License-Identifier: Apache-2.0
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pynetstack-edu"
+version = "0.1.0"
+description = "An observable educational TCP/IP stack over a polled RS-485 bus"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [{name = "Ib Helmer Nielsen"}]
+dependencies = []
+
+[project.optional-dependencies]
+serial = ["pyserial>=3.5,<4"]
+
+[project.scripts]
+pynetstack = "pynetstack.cli:main"
+
+[project.urls]
+Repository = "https://github.com/ibhelmer/PyNetStack"
+
+[tool.setuptools]
+packages = ["pynetstack"]
+license-files = ["LICENSE", "NOTICE"]
