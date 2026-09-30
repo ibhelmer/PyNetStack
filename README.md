@@ -9,14 +9,21 @@ It does not use the operating system's TCP sockets to simulate its transport lay
 A custom link protocol adds framing, node addresses, escaping, CRC-32 and polling.
 Run the same stack on an in-memory byte bus or through optional USB-to-RS-485 adapters.
 
-**Status: 0.1.0, educational prototype.** The software simulation and automated tests
-have been run; physical RS-485 operation has not been hardware-validated.
+**Status: 0.2.0, educational prototype with an experimental MicroPython port.**
+The CPython tests pass. Native MicroPython execution and physical RS-485 operation
+have **not** been validated. Do not read desktop/API-fake tests as board certification.
+
+The `esp32c6-micropython` branch adds an ESP32-C6-DevKitC-1 target. Read the
+[board installation guide](docs/ESP32_C6.md) for pin assignments, firmware,
+source deployment, a software self-test and a PC-to-board lab. The same portable
+protocol core runs behind the desktop and UART entry points; the wire format is
+unchanged from 0.1.0.
 The TCP implementation is a deliberately limited teaching subset, not a production
 or fully RFC-conformant TCP implementation. See [scope and limitations](docs/ARCHITECTURE.md#scope-and-limitations).
 
 ## Start without hardware
 
-Python 3.10 or later is required. From a local checkout, the demo needs no external
+For the desktop entry point, CPython 3.10 or later is required. From a local checkout, the demo needs no external
 Python packages and does not require administrator privileges.
 
 ```console
@@ -147,6 +154,7 @@ cannot use them. Use the PyNetStack console or Python API.
 | [Link protocol](docs/LINK_PROTOCOL.md) | Exact binary format, CRC, escaping, polling and timeouts |
 | [RS-485 guide](docs/RS485.md) | Wiring, adapter modes, three-node configuration and troubleshooting |
 | [Teaching exercises](docs/TEACHING.md) | Trace analysis, packet loss, multiplexing and design exercises |
+| [ESP32-C6-DevKitC-1](docs/ESP32_C6.md) | Experimental MicroPython port, wiring, deployment and bring-up |
 | [Validation](docs/VALIDATION.md) | Tests actually run and what remains unverified |
 
 All source identifiers, comments, docstrings, console messages and documentation
@@ -157,6 +165,7 @@ are written in English.
 ```console
 python -m unittest discover -s tests -v
 python -m compileall -q pynetstack
+python tests/micropython_selftest.py
 python -m pip install .
 pynetstack demo --quiet
 ```

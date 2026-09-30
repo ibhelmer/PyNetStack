@@ -1,39 +1,44 @@
 # Copyright 2026 Ib Helmer Nielsen
 # SPDX-License-Identifier: Apache-2.0
 """IPv4, ICMP, UDP and TCP wire codecs; no operating-system sockets."""
-from dataclasses import dataclass
-from ipaddress import IPv4Address
+from .compat import IPv4Address
 import struct
+from .compat import Record
 
 ICMP, TCP, UDP = 1, 6, 17
 FIN, SYN, RST, PSH, ACK = 0x01, 0x02, 0x04, 0x08, 0x10
 
 
-def checksum(data: bytes) -> int:
+def checksum(data):
     """Return the Internet one's-complement checksum in network byte order."""
-    if len(data) % 2:
-        data += b"\x00"
-    total = sum(struct.unpack(f"!{len(data) // 2}H", data))
+    # Accumulate directly: no temporary tuple containing every 16-bit word.
+    total = 0
+    for offset in range(0, len(data) - 1, 2):
+        total += (data[offset] << 8) | data[offset + 1]
+    if len(data) & 1:
+        total += data[-1] << 8
     while total >> 16:
         total = (total & 0xFFFF) + (total >> 16)
     return (~total) & 0xFFFF
 
 
-def pseudo_header(source: str, destination: str, protocol: int, length: int) -> bytes:
+def pseudo_header(source, destination, protocol, length):
     return (IPv4Address(source).packed + IPv4Address(destination).packed
             + struct.pack("!BBH", 0, protocol, length))
 
 
-@dataclass(frozen=True)
-class IPv4Packet:
-    source: str
-    destination: str
-    protocol: int
-    payload: bytes
-    identification: int = 0
-    ttl: int = 64
+class IPv4Packet(Record):
+    _fields = ('source', 'destination', 'protocol', 'payload', 'identification', 'ttl')
 
-    def encode(self) -> bytes:
+    def __init__(self, source, destination, protocol, payload, identification=0, ttl=64):
+        self.source = source
+        self.destination = destination
+        self.protocol = protocol
+        self.payload = payload
+        self.identification = identification
+        self.ttl = ttl
+
+    def encode(self):
         if not 1 <= self.ttl <= 255 or len(self.payload) > 65515:
             raise ValueError("Invalid IPv4 TTL or payload length")
         header = struct.pack("!BBHHHBBH4s4s", 0x45, 0, 20 + len(self.payload),
@@ -43,7 +48,7 @@ class IPv4Packet:
         return header[:10] + struct.pack("!H", checksum(header)) + header[12:] + self.payload
 
     @classmethod
-    def decode(cls, data: bytes) -> "IPv4Packet":
+    def decode(cls, data):
         if len(data) < 20:
             raise ValueError("Truncated IPv4 header")
         version, _, length, ident, fragment, ttl, protocol, _, source, destination = (
@@ -60,13 +65,15 @@ class IPv4Packet:
                    protocol, data[20:], ident, ttl)
 
 
-@dataclass(frozen=True)
-class UdpDatagram:
-    source_port: int
-    destination_port: int
-    payload: bytes
+class UdpDatagram(Record):
+    _fields = ('source_port', 'destination_port', 'payload')
 
-    def encode(self, source: str, destination: str) -> bytes:
+    def __init__(self, source_port, destination_port, payload):
+        self.source_port = source_port
+        self.destination_port = destination_port
+        self.payload = payload
+
+    def encode(self, source, destination):
         header = struct.pack("!HHHH", self.source_port, self.destination_port,
                              8 + len(self.payload), 0)
         body = header + self.payload
@@ -74,7 +81,7 @@ class UdpDatagram:
         return body[:6] + struct.pack("!H", value or 0xFFFF) + body[8:]
 
     @classmethod
-    def decode(cls, data: bytes, source: str, destination: str) -> "UdpDatagram":
+    def decode(cls, data, source, destination):
         if len(data) < 8:
             raise ValueError("Truncated UDP header")
         source_port, destination_port, length, value = struct.unpack_from("!HHHH", data)
@@ -86,21 +93,23 @@ class UdpDatagram:
         return cls(source_port, destination_port, data[8:])
 
 
-@dataclass(frozen=True)
-class IcmpEcho:
-    kind: int
-    identifier: int
-    sequence: int
-    payload: bytes = b""
+class IcmpEcho(Record):
+    _fields = ('kind', 'identifier', 'sequence', 'payload')
 
-    def encode(self) -> bytes:
+    def __init__(self, kind, identifier, sequence, payload=b''):
+        self.kind = kind
+        self.identifier = identifier
+        self.sequence = sequence
+        self.payload = payload
+
+    def encode(self):
         if self.kind not in (0, 8):
             raise ValueError("Only ICMP echo request/reply is supported")
         body = struct.pack("!BBHHH", self.kind, 0, 0, self.identifier, self.sequence) + self.payload
         return body[:2] + struct.pack("!H", checksum(body)) + body[4:]
 
     @classmethod
-    def decode(cls, data: bytes) -> "IcmpEcho":
+    def decode(cls, data):
         if len(data) < 8 or checksum(data):
             raise ValueError("ICMP size or checksum mismatch")
         kind, code, _, identifier, sequence = struct.unpack_from("!BBHHH", data)
@@ -109,21 +118,23 @@ class IcmpEcho:
         return cls(kind, identifier, sequence, data[8:])
 
 
-@dataclass(frozen=True)
-class TcpSegment:
-    source_port: int
-    destination_port: int
-    sequence: int
-    acknowledgment: int
-    flags: int
-    payload: bytes = b""
-    window: int = 1024
+class TcpSegment(Record):
+    _fields = ('source_port', 'destination_port', 'sequence', 'acknowledgment', 'flags', 'payload', 'window')
+
+    def __init__(self, source_port, destination_port, sequence, acknowledgment, flags, payload=b'', window=1024):
+        self.source_port = source_port
+        self.destination_port = destination_port
+        self.sequence = sequence
+        self.acknowledgment = acknowledgment
+        self.flags = flags
+        self.payload = payload
+        self.window = window
 
     @property
-    def sequence_length(self) -> int:
+    def sequence_length(self):
         return len(self.payload) + bool(self.flags & SYN) + bool(self.flags & FIN)
 
-    def encode(self, source: str, destination: str) -> bytes:
+    def encode(self, source, destination):
         header = struct.pack("!HHIIBBHHH", self.source_port, self.destination_port,
                              self.sequence, self.acknowledgment, 0x50, self.flags,
                              self.window, 0, 0)
@@ -132,7 +143,7 @@ class TcpSegment:
         return body[:16] + struct.pack("!H", value) + body[18:]
 
     @classmethod
-    def decode(cls, data: bytes, source: str, destination: str) -> "TcpSegment":
+    def decode(cls, data, source, destination):
         if len(data) < 20:
             raise ValueError("Truncated TCP header")
         sp, dp, seq, ack, offset, flags, window, _, urgent = struct.unpack_from("!HHIIBBHHH", data)

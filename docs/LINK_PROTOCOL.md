@@ -71,7 +71,8 @@ separate from byte decoding.
 ## CRC-32
 
 Use the value produced by Python's `zlib.crc32(header + payload) & 0xffffffff`,
-then serialize that integer as four big-endian bytes. This is CRC-32/ISO-HDLC
+then serialize that integer as four big-endian bytes. The portable core uses
+`binascii.crc32` or an equivalent table-free fallback; the resulting value is identical. This is CRC-32/ISO-HDLC
 (the commonly used reflected IEEE CRC-32), not CRC-32C. The parameter convention
 is polynomial 0x04C11DB7, reflected input/output, initial register 0xFFFFFFFF and
 final XOR 0xFFFFFFFF. Its check value for ASCII `123456789` is `CBF43926`.

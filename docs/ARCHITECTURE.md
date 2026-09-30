@@ -102,6 +102,36 @@ The connection table is limited to 64 entries and each application send buffer
 to 65,536 queued bytes. Link queues have their own 128-packet limit. Exhausting a
 limit raises an exception rather than providing production-grade backpressure.
 
+## Portable core and the ESP32-C6 profile (0.2.0)
+
+`compat.py` provides strict IPv4 text/byte conversion, a CRC-32 fallback, bounded
+FIFO queues and exception/random-source adapters. `timing.py` uses integer
+MicroPython tick timestamps with `ticks_add`/`ticks_diff`; durations remain seconds.
+It does not accumulate floating-point uptime for scheduling. CPython and simulation
+callable clocks remain supported through a seconds-based adapter.
+
+Packet containers are ordinary classes with value equality rather than frozen
+CPython dataclasses. Treat their fields as read-only. `FrameType` values are integer
+constants; use `FrameType.name(value)` instead of IntEnum metadata. This is a small
+Python API change, not a wire-format change. Internet checksums are accumulated
+without allocating a tuple of all input words.
+
+`simulation.py` is a portable byte bus; `physical.py` re-exports its classes for
+existing desktop imports and retains the optional pySerial driver. `uart.py` adapts
+MicroPython UART1 and a tied DE + /RE GPIO. The `examples/esp32c6` entry point uses
+cooperative `NetworkStack.step()` calls, not threads or the desktop CLI.
+
+New constructor options are `PollingLink(max_queue=...)` and
+`NetworkStack(tcp_max_connections=..., tcp_max_buffer=..., tcp_mss=...)`.
+Desktop defaults are unchanged. The board profile chooses 8 queued link packets,
+2 TCP connections (including closing/TIME_WAIT entries), 2048 outbound bytes per
+connection and 256-byte TCP segments. These are limits, not preallocated payloads
+or measured board capacity. The fixed advertised TCP window remains 1024 bytes;
+callbacks must consume data promptly. Queue overflow remains an explicit error,
+not production-grade backpressure.
+
+See [ESP32-C6 setup](ESP32_C6.md) and [validation status](VALIDATION.md).
+
 ## Python API
 
 The event loop owns all stack objects. Service them frequently from one thread;

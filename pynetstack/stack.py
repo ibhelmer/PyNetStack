@@ -1,9 +1,7 @@
 # Copyright 2026 Ib Helmer Nielsen
 # SPDX-License-Identifier: Apache-2.0
 """One IPv4 host on the shared bus, with static neighbor resolution."""
-from collections.abc import Callable
-from ipaddress import IPv4Address
-import time
+from .compat import IPv4Address
 from .framing import MTU
 from .link import PollingLink
 from .packets import ICMP, TCP, UDP, IcmpEcho, IPv4Packet, UdpDatagram
@@ -11,8 +9,9 @@ from .tcp import TcpEngine
 
 
 class NetworkStack:
-    def __init__(self, ip: str, link: PollingLink, neighbors: dict[str, int], *,
-                 clock: Callable[[], float] = time.monotonic, tcp_rto: float = 3.0):
+    def __init__(self, ip, link, neighbors, *,
+                 clock = None, tcp_rto = 3.0,
+                 tcp_max_connections=64, tcp_max_buffer=65536, tcp_mss=256):
         self.ip, self.link, self.trace = str(IPv4Address(ip)), link, link.trace
         self.neighbors = {str(IPv4Address(address)): node for address, node in neighbors.items()}
         if not all(isinstance(node, int) and 0 <= node <= 254 for node in self.neighbors.values()):
@@ -22,13 +21,15 @@ class NetworkStack:
         if self.neighbors.get(self.ip) != link.node:
             raise ValueError("The neighbor map must include the local IP and node ID")
         self.identification = 0
-        self.udp_handlers: dict[int, Callable[[str, int, bytes], None]] = {}
-        self.on_echo_reply: Callable[[str, IcmpEcho], None] = lambda source, echo: None
+        self.udp_handlers = {}
+        self.on_echo_reply = lambda source, echo: None
         self.tcp = TcpEngine(self.ip, lambda destination, packet: self.send_ip(destination, TCP, packet),
-                             self.trace, clock=clock, rto=tcp_rto)
+                             self.trace, clock=clock if clock is not None else link.clock, rto=tcp_rto,
+                             max_connections=tcp_max_connections, max_buffer=tcp_max_buffer,
+                             mss=tcp_mss)
         self.link.on_packet = self.receive_ip
 
-    def send_ip(self, destination: str, protocol: int, payload: bytes) -> None:
+    def send_ip(self, destination, protocol, payload):
         destination = str(IPv4Address(destination))
         if destination not in self.neighbors:
             raise ValueError(f"No static neighbor mapping for {destination}")
@@ -41,12 +42,12 @@ class NetworkStack:
                         protocol=protocol, identification=packet.identification, length=len(raw), raw=raw)
         self.link.send(self.neighbors[destination], raw)
 
-    def bind_udp(self, port: int, callback: Callable[[str, int, bytes], None]) -> None:
+    def bind_udp(self, port, callback):
         if not 1 <= port <= 65535 or port in self.udp_handlers:
             raise ValueError("Invalid or already bound UDP port")
         self.udp_handlers[port] = callback
 
-    def send_udp(self, destination: str, destination_port: int, payload: bytes, source_port: int = 40000) -> None:
+    def send_udp(self, destination, destination_port, payload, source_port = 40000):
         if not 1 <= source_port <= 65535 or not 1 <= destination_port <= 65535:
             raise ValueError("UDP ports must be in 1..65535")
         if len(payload) > MTU - 28:
@@ -57,14 +58,14 @@ class NetworkStack:
                         destination_port=destination_port, length=len(payload))
         self.send_ip(destination, UDP, datagram.encode(self.ip, destination))
 
-    def ping(self, destination: str, payload: bytes = b"PyNetStack", *,
-             identifier: int = 1, sequence: int = 1) -> None:
+    def ping(self, destination, payload = b"PyNetStack", *,
+             identifier = 1, sequence = 1):
         if len(payload) > MTU - 28:
             raise ValueError("ICMP echo payload exceeds MTU")
         self.trace.emit("ICMP", "TX", "Echo request", identifier=identifier, sequence=sequence)
         self.send_ip(destination, ICMP, IcmpEcho(8, identifier, sequence, payload).encode())
 
-    def receive_ip(self, source_node: int, raw: bytes) -> None:
+    def receive_ip(self, source_node, raw):
         try:
             packet = IPv4Packet.decode(raw)
             if packet.destination != self.ip:
@@ -101,6 +102,6 @@ class NetworkStack:
         except ValueError as error:
             self.trace.emit("IP+", "DROP", str(error))
 
-    def step(self) -> None:
+    def step(self):
         self.link.step()
         self.tcp.tick()
